@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily To‑Do</title>
+<style>
+:root{--bg:#f5f7fb;--panel:#fff;--text:#172033;--muted:#718096;--line:#e7ebf2;--accent:#2563eb;--accent-soft:#eff6ff;--green:#15803d}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{width:min(720px,calc(100% - 32px));margin:48px auto}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:22px}
+h1{font-size:28px;letter-spacing:-.7px;margin:0}
+.sub{color:var(--muted);margin:4px 0 0}
+.datebox{background:var(--panel);border:1px solid var(--line);padding:10px 14px;border-radius:12px;text-align:right;min-width:130px}
+.datebox strong{display:block;font-size:14px}.datebox span{font-size:12px;color:var(--muted)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 8px 30px #17203308}
+.addrow{display:flex;gap:9px}
+input[type=text]{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px 13px;font:inherit;outline:none}
+input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px #2563eb18}
+button{border:0;border-radius:10px;padding:11px 15px;background:var(--accent);color:#fff;font:600 14px inherit;cursor:pointer}
+button:hover{filter:brightness(.96)}
+button.secondary{background:#f1f5f9;color:#334155}
+.toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:20px 0 12px}
+.tabs{display:flex;gap:5px;background:#eef2f7;padding:4px;border-radius:10px}
+.tabs button{background:transparent;color:var(--muted);padding:7px 11px;font-size:13px}
+.tabs button.active{background:#fff;color:var(--text);box-shadow:0 1px 4px #17203315}
+.count{font-size:13px;color:var(--muted)}
+ul{list-style:none;padding:0;margin:0}
+li{display:flex;align-items:center;gap:11px;padding:13px 2px;border-bottom:1px solid var(--line)}
+li:last-child{border-bottom:0}
+li input[type=checkbox]{width:18px;height:18px;accent-color:var(--green);cursor:pointer;flex:none}
+.task{flex:1;min-width:0;overflow-wrap:anywhere}
+li.done .task{text-decoration:line-through;color:#9aa4b2}
+.task-date{font-size:11px;color:var(--muted);display:block}
+.actions{display:flex;gap:4px}
+.iconbtn{padding:6px 8px;background:transparent;color:#64748b;font-size:13px}
+.iconbtn:hover{background:#f1f5f9}
+.empty{text-align:center;color:var(--muted);padding:28px 10px}
+.bottom{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:18px;flex-wrap:wrap}
+.note{font-size:12px;color:var(--muted)}
+@media(max-width:520px){main{margin:25px auto}header{align-items:flex-start;flex-direction:column}.datebox{text-align:left}.addrow{flex-wrap:wrap}.addrow input{flex-basis:100%}.toolbar{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div><h1>Daily To‑Do</h1><p class="sub">Keep today simple. Get things done.</p></div>
+  <div class="datebox"><strong id="todayDate">—</strong><span id="todayDay">—</span></div>
+</header>
+<section class="card">
+  <form class="addrow" id="taskForm">
+    <input id="taskInput" type="text" placeholder="What do you need to do?" maxlength="180" autocomplete="off" required>
+    <button type="submit">Add task</button>
+  </form>
+  <div class="toolbar">
+    <div class="tabs">
+      <button type="button" class="active" data-filter="today">Today</button>
+      <button type="button" data-filter="all">All tasks</button>
+    </div>
+    <span class="count" id="count">0 tasks</span>
+  </div>
+  <ul id="taskList"></ul>
+  <div class="bottom">
+    <span class="note">Tasks stay saved in this browser.</span>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="secondary" id="exportBtn" type="button">Export week (CSV)</button>
+      <button id="syncBtn" type="button">Sync to Sheets</button>
+    </div>
+  </div>
+  <div style="margin-top:14px;padding-top:13px;border-top:1px solid var(--line)">
+    <label for="sheetUrl" style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Google Sheets Web App URL</label>
+    <div class="addrow">
+      <input id="sheetUrl" type="text" placeholder="Paste your Apps Script /exec URL">
+      <button class="secondary" id="saveUrlBtn" type="button">Save URL</button>
+    </div>
+    <p class="note" id="syncStatus" role="status" style="margin:8px 0 0">Not connected yet. Add your Web App URL to enable syncing.</p>
+  </div>
+</section>
+<p class="note" style="text-align:center;margin-top:14px">Weekly review: export the CSV and upload it to this chat.</p>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const storeKey = 'simpleTodoTasks_v1';
+const urlKey = 'simpleTodoSheetsUrl_v1';
+let tasks = [];
+try { tasks = JSON.parse(localStorage.getItem(storeKey) || '[]'); if (!Array.isArray(tasks)) tasks=[]; } catch { tasks=[]; }
+let filter = 'today';
+const pad = n => String(n).padStart(2,'0');
+const localISO = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const today = localISO(new Date());
+$('#todayDate').textContent = new Intl.DateTimeFormat('en-IN',{day:'numeric',month:'short',year:'numeric'}).format(new Date());
+$('#todayDay').textContent = new Intl.DateTimeFormat('en-IN',{weekday:'long'}).format(new Date());
+function save(){localStorage.setItem(storeKey,JSON.stringify(tasks));}
+function escapeHTML(s){return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+const savedSheetUrl = localStorage.getItem(urlKey) || '';
+$('#sheetUrl').value = savedSheetUrl;
+function setSyncStatus(message){ $('#syncStatus').textContent = message; }
+$('#saveUrlBtn').addEventListener('click',()=>{
+  const url=$('#sheetUrl').value.trim();
+  if(url && !/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(url)){
+    setSyncStatus('That URL does not look like an Apps Script Web App /exec URL.'); return;
+  }
+  localStorage.setItem(urlKey,url);
+  setSyncStatus(url?'Google Sheets URL saved in this browser.':'Sheets URL cleared.');
+});
+$('#syncBtn').addEventListener('click',async()=>{
+  const url=($('#sheetUrl').value.trim() || localStorage.getItem(urlKey) || '');
+  if(!url){setSyncStatus('Paste and save your Apps Script Web App URL first.');return;}
+  if(!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/.test(url)){
+    setSyncStatus('Please use the deployed Apps Script URL ending in /exec.');return;
+  }
+  const payload={
+    tasks:tasks.map(t=>({
+      id:String(t.id),date:t.date,
+      day:new Intl.DateTimeFormat('en-IN',{weekday:'long'}).format(new Date(t.date+'T12:00:00')),
+      task:t.text,status:t.done?'Completed':'Pending',
+      updatedAt:new Date().toISOString()
+    }))
+  };
+  const btn=$('#syncBtn');btn.disabled=true;btn.textContent='Sending…';
+  setSyncStatus('Sending current task list to Google Sheets…');
+  try{
+    // Apps Script web apps commonly require no-cors for cross-origin browser POSTs.
+    // The request is sent, but the browser cannot read the server response in no-cors mode.
+    await fetch(url,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});
+    setSyncStatus('Sync request sent. Check the Google Sheet to confirm the latest tasks appeared.');
+  }catch(err){
+    setSyncStatus('Could not send the request. Check your internet connection and Web App URL.');
+  }finally{btn.disabled=false;btn.textContent='Sync to Sheets';}
+});
+
+function render(){
+  const shown = tasks.filter(t=>filter==='all'||t.date===today).sort((a,b)=>b.createdAt-a.createdAt);
+  $('#count').textContent = `${shown.length} ${shown.length===1?'task':'tasks'} · ${shown.filter(t=>t.done).length} completed`;
+  $('#taskList').innerHTML = shown.length ? shown.map(t=>`
+    <li class="${t.done?'done':''}" data-id="${t.id}">
+      <input type="checkbox" aria-label="Mark complete" ${t.done?'checked':''}>
+      <span class="task">${escapeHTML(t.text)}<span class="task-date">${t.date}</span></span>
+      <span class="actions"><button class="iconbtn edit" type="button" title="Edit">Edit</button><button class="iconbtn delete" type="button" title="Delete">Delete</button></span>
+    </li>`).join('') : `<li class="empty">${filter==='today'?'No tasks for today. Add your first task above.':'No tasks yet. Add your first task above.'}</li>`;
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('active',b.dataset.filter===filter));
+}
+$('#taskForm').addEventListener('submit',e=>{
+  e.preventDefault(); const text=$('#taskInput').value.trim(); if(!text)return;
+  tasks.push({id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),text,date:today,done:false,createdAt:Date.now()});
+  save(); $('#taskInput').value=''; filter='today'; render(); $('#taskInput').focus();
+});
+$('#taskList').addEventListener('click',e=>{
+  const li=e.target.closest('li[data-id]'); if(!li)return;
+  const t=tasks.find(x=>x.id===li.dataset.id); if(!t)return;
+  if(e.target.matches('input[type=checkbox]')){t.done=e.target.checked;save();render();}
+  if(e.target.closest('.delete')){tasks=tasks.filter(x=>x.id!==t.id);save();render();}
+  if(e.target.closest('.edit')){const next=prompt('Edit task:',t.text);if(next!==null&&next.trim()){t.text=next.trim();save();render();}}
+});
+document.querySelectorAll('.tabs button').forEach(b=>b.addEventListener('click',()=>{filter=b.dataset.filter;render();}));
+function startOfWeek(d){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());const day=(x.getDay()+6)%7;x.setDate(x.getDate()-day);return x;}
+$('#exportBtn').addEventListener('click',()=>{
+  const start=startOfWeek(new Date()); const end=new Date(start);end.setDate(end.getDate()+6);
+  const from=localISO(start),to=localISO(end);
+  const weekly=tasks.filter(t=>t.date>=from&&t.date<=to).sort((a,b)=>a.date.localeCompare(b.date));
+  const rows=[['Date','Day','Task','Status'],...weekly.map(t=>[t.date,new Intl.DateTimeFormat('en-IN',{weekday:'long'}).format(new Date(t.date+'T12:00:00')),t.text,t.done?'Completed':'Pending'])];
+  const csv=rows.map(row=>row.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\r\n');
+  const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`todo-week-${from}-to-${to}.csv`;a.click();URL.revokeObjectURL(url);
+});
+render();
+</script>
+</body>
+</html>
